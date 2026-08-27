@@ -1,4 +1,4 @@
-const CACHE = 'my-wo-v2-4-pwa';
+const CACHE = 'my-wo-v2-6-pwa';
 const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', event => {
