@@ -390,14 +390,21 @@ const esc=v=>escapeHtml(String(v??''));
 /* ==================== STORAGE ==================== */
 async function storageGet(key){
   try{ if(window.storage?.get){ const r=await window.storage.get(key); if(r?.value!=null) return r.value; } }catch(e){}
-  try{return localStorage.getItem('scheda2_'+key);}catch(e){return null;}
+  try{const v=localStorage.getItem('scheda2_'+key); if(v!==null)return v;}catch(e){}
+  try{return await idbGet(key);}catch(e){return null;}
 }
 async function storageSet(key,value){
   let ok=false;
   try{ if(window.storage?.set){ await window.storage.set(key,value); ok=true; } }catch(e){}
   try{ localStorage.setItem('scheda2_'+key,value); ok=true; }catch(e){}
+  if(!ok){ try{await idbSet(key,value); ok=true;}catch(e){} }
   return ok;
 }
+const IDB_NAME='my_wo_db', IDB_STORE='kv';
+function idbOpen(){return new Promise((resolve,reject)=>{const r=indexedDB.open(IDB_NAME,1);r.onupgradeneeded=()=>r.result.createObjectStore(IDB_STORE);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
+async function idbGet(key){const db=await idbOpen();return new Promise((resolve,reject)=>{const r=db.transaction(IDB_STORE,'readonly').objectStore(IDB_STORE).get(key);r.onsuccess=()=>resolve(r.result??null);r.onerror=()=>reject(r.error);});}
+async function idbSet(key,value){const db=await idbOpen();return new Promise((resolve,reject)=>{const r=db.transaction(IDB_STORE,'readwrite').objectStore(IDB_STORE).put(value,key);r.onsuccess=()=>resolve(true);r.onerror=()=>reject(r.error);});}
+
 function emptyUserData(){return {version:DATA_VERSION,schede:[],storico:[],eserciziCustom:[],settings:{...DEFAULT_SETTINGS}};}
 function makeUser(nome='Il mio profilo',email=''){const now=Date.now();return {id:uid(),nome:(nome||'Il mio profilo').trim(),email:(email||'').trim(),creatoIl:now,aggiornatoIl:now};}
 function userKey(id){return 'user_data_'+id;}
@@ -550,7 +557,18 @@ window.removeExerciseFromDraft=i=>{window._draftScheda.esercizi.splice(i,1);rend
 window.addExerciseToDraft=function(){const cats=Object.entries(CATEGORIE).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');openGeneric(`<div class="modal-handle"></div><h3 style="margin:0 0 14px">Aggiungi esercizio</h3><div class="field"><label class="field-label">Categoria</label><select id="pick-cat" class="cat-select" onchange="updatePickList()">${cats}</select></div><div class="field"><label class="field-label">Esercizio</label><select id="pick-ex" class="cat-select"></select></div><button class="btn btn-accent btn-block" onclick="confirmAddExercise()">Aggiungi</button>`);updatePickList();};
 window.updatePickList=()=>{const c=document.getElementById('pick-cat')?.value,sel=document.getElementById('pick-ex');if(!sel)return;sel.innerHTML=allEsercizi().filter(e=>e.cat===c).map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('');};
 window.confirmAddExercise=()=>{const id=document.getElementById('pick-ex')?.value;if(!id)return;window._draftScheda.esercizi.push({esercizioId:id,serie:3,ripetizioni:10,repsMin:8,repsMax:10,recupero:90,kg:0,rir:2,note:'',superset:''});renderSchedaEditor();};
-window.saveSchedaDraft=async()=>{const d=window._draftScheda;d.nome=(d.nome||'').trim()||'Scheda senza nome';d.aggiornataIl=Date.now();d.esercizi.forEach(normalizePlanExercise);if(!d.esercizi.length){toast('Aggiungi almeno un esercizio');return;}const idx=state.schede.findIndex(s=>s.id===d.id);if(idx>=0)state.schede[idx]=d;else state.schede.push(d);await saveSchede();closeModal('generic-modal');render();toast('Scheda salvata ✓');};
+window.saveSchedaDraft=async()=>{
+  const d=window._draftScheda;
+  d.nome=(d.nome||'').trim()||'Scheda senza nome';
+  d.aggiornataIl=Date.now();
+  d.esercizi.forEach(normalizePlanExercise);
+  if(!d.esercizi.length){toast('Aggiungi almeno un esercizio');return;}
+  const idx=state.schede.findIndex(s=>s.id===d.id);
+  if(idx>=0)state.schede[idx]=d;else state.schede.push(d);
+  const ok=await saveState();
+  if(!ok){toast('⚠️ Salvataggio non riuscito');return;}
+  closeModal('generic-modal');render();toast('Scheda salvata ✓');
+};
 
 /* ==================== ESERCIZI ==================== */
 function renderEsercizi(root,fab){fab.style.display='flex';fab.onclick=()=>openNewExerciseForm();root.innerHTML=`<div class="section-title"><div><span class="eyebrow">LIBRERIA</span><h2>Esercizi</h2></div></div><div class="chips" id="exercise-filters"><button class="chip ${esercizioFilter==='tutti'?'active':''}" onclick="setEsercizioFilter('tutti')">Tutti</button>${Object.entries(CATEGORIE).map(([k,v])=>`<button class="chip ${esercizioFilter===k?'active':''}" onclick="setEsercizioFilter('${k}')">${v.label}</button>`).join('')}</div><div id="exercise-list"></div>`;
